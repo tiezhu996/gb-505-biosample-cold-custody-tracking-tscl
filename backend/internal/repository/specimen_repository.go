@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"biosample-cold-custody-tracking/backend/internal/dto"
 	"biosample-cold-custody-tracking/backend/internal/model"
 )
+
+var ErrSpecimenExpired = errors.New("specimen is past its expiry time")
 
 type SpecimenFilter struct {
 	dto.PageQuery

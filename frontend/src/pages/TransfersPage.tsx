@@ -1,5 +1,5 @@
 import { CheckOutlined, CloseOutlined, HistoryOutlined, PlusOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons'
-import { Button, Col, Drawer, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Col, Drawer, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useEffect, useState } from 'react'
 import { specimenAPI, storageAPI, transferAPI } from '../api'
@@ -11,6 +11,7 @@ import { usePagination } from '../hooks/usePagination'
 import { useTransferStore } from '../stores/transferStore'
 import type { CustodyTransfer, Specimen, StorageContainer, TransferState } from '../types/domain'
 import { formatDateTime } from '../utils/format'
+import { isSpecimenExpired } from '../utils/specimen'
 
 type Resolution = 'accepted' | 'rejected' | 'cancelled'
 
@@ -33,7 +34,7 @@ export function TransfersPage() {
   useEffect(() => { void refresh() }, [pagination.page, pagination.pageSize, state])
   useEffect(() => {
     void Promise.all([specimenAPI.list({ page: 1, pageSize: 100 }), storageAPI.list({ page: 1, pageSize: 100 })]).then(([sampleResult, storageResult]) => {
-      setSpecimens(sampleResult.items.filter((item) => !['disposed', 'released'].includes(item.state)))
+      setSpecimens(sampleResult.items.filter((item) => !['disposed', 'released'].includes(item.state) && !isSpecimenExpired(item)))
       setContainers(storageResult.items.filter((item) => item.active && item.status === 'available' && item.occupied < item.capacity))
     })
   }, [])
@@ -55,6 +56,11 @@ export function TransfersPage() {
     } finally { setSaving(false) }
   }
   const showTimeline = async (row: CustodyTransfer) => setTimelineSpecimen(await specimenAPI.get(row.specimenId))
+  const resolveExpired = (row: CustodyTransfer | null) => Boolean(row?.specimen && isSpecimenExpired(row.specimen))
+  const openResolve = (row: CustodyTransfer) => {
+    setResolveTarget(row)
+    setResolution(resolveExpired(row) ? 'rejected' : 'accepted')
+  }
   const specimenLocation = (specimen: Specimen) => specimen.storageContainer
     ? [specimen.storageContainer.location, specimen.storageContainer.code, specimen.position].filter(Boolean).join(' / ')
     : 'intake'
@@ -66,7 +72,7 @@ export function TransfersPage() {
     { title: '位置变化', render: (_, row) => <div>{row.fromLocation}<small className="cell-subtitle">→ {row.toLocation}</small></div> },
     { title: '温度', dataIndex: 'temperatureC', render: (value) => value == null ? '-' : `${value} °C` },
     { title: '发起人/时间', render: (_, row) => <div>{row.preparedByName}<small className="cell-subtitle">{formatDateTime(row.preparedAt)}</small></div> },
-    { title: '操作', fixed: 'right', render: (_, row) => <Space><Button size="small" icon={<HistoryOutlined />} onClick={() => void showTimeline(row)}>链路</Button>{row.state === 'prepared' && can('transfer:resolve') && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => { setResolveTarget(row); setResolution('accepted') }}>处理</Button>}</Space> },
+    { title: '操作', fixed: 'right', render: (_, row) => <Space><Button size="small" icon={<HistoryOutlined />} onClick={() => void showTimeline(row)}>链路</Button>{row.state === 'prepared' && can('transfer:resolve') && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => openResolve(row)}>处理</Button>}</Space> },
   ]
   return (
     <div className="page-stack">
@@ -81,7 +87,7 @@ export function TransfersPage() {
         }}><Row gutter={16}><Col span={12}><Form.Item name="transferNo" label="交接单号" rules={[{ required: true, min: 3 }]}><Input placeholder="TR-20260822-001" /></Form.Item></Col><Col span={12}><Form.Item name="specimenId" label="样本" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={specimens.map((item) => ({ value: item.id, label: `${item.accessionNo} · ${item.sampleType}` }))} /></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item name="fromCustodian" label="移交人" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="toCustodian" label="接收人" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Row gutter={16}><Col span={12}><Form.Item name="fromLocation" label="移交前位置" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="toLocation" label="目标位置描述" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="temperatureC" label="交接温度 (°C)"><InputNumber min={-200} max={30} precision={1} style={{ width: '100%' }} /></Form.Item><Form.Item name="reason" label="交接用途/备注"><Input.TextArea rows={3} maxLength={800} showCount /></Form.Item></Form>
       </Modal>
       <Modal title={`处理交接 ${resolveTarget?.transferNo || ''}`} width={620} open={Boolean(resolveTarget)} confirmLoading={saving} onOk={() => void resolve()} onCancel={() => setResolveTarget(null)} okText="确认处理" cancelText="返回">
-        <Space direction="vertical" size="large" style={{ width: '100%' }}><Segmented block value={resolution} onChange={(value) => setResolution(value as Resolution)} options={[{ value: 'accepted', label: '接收', icon: <CheckOutlined /> }, { value: 'rejected', label: '拒绝', icon: <CloseOutlined /> }, { value: 'cancelled', label: '取消', icon: <StopOutlined /> }]} /><Form form={resolveForm} layout="vertical">{resolution === 'accepted' && <Row gutter={16}><Col span={12}><Form.Item name="toContainerId" label="目标冻存容器" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={containers.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></Form.Item></Col><Col span={12}><Form.Item name="toPosition" label="格位" rules={[{ required: true }]}><Input placeholder="R03-B05-C07" /></Form.Item></Col></Row>}<Form.Item name="temperatureC" label="交接复核温度 (°C)"><InputNumber min={-200} max={30} precision={1} style={{ width: '100%' }} /></Form.Item><Form.Item name="reason" label="处理说明" rules={[{ required: true, min: 3 }]}><Input.TextArea rows={3} /></Form.Item></Form></Space>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>{resolveExpired(resolveTarget) && <Alert type="warning" showIcon message="样本已过有效期，不能接收交接；请先在样本队列完成销毁处置，或拒绝/取消该交接" />}<Segmented block value={resolution} onChange={(value) => setResolution(value as Resolution)} options={[{ value: 'accepted', label: '接收', icon: <CheckOutlined />, disabled: resolveExpired(resolveTarget) }, { value: 'rejected', label: '拒绝', icon: <CloseOutlined /> }, { value: 'cancelled', label: '取消', icon: <StopOutlined /> }]} /><Form form={resolveForm} layout="vertical">{resolution === 'accepted' && <Row gutter={16}><Col span={12}><Form.Item name="toContainerId" label="目标冻存容器" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={containers.map((item) => ({ value: item.id, label: `${item.code} · ${item.name}` }))} /></Form.Item></Col><Col span={12}><Form.Item name="toPosition" label="格位" rules={[{ required: true }]}><Input placeholder="R03-B05-C07" /></Form.Item></Col></Row>}<Form.Item name="temperatureC" label="交接复核温度 (°C)"><InputNumber min={-200} max={30} precision={1} style={{ width: '100%' }} /></Form.Item><Form.Item name="reason" label="处理说明" rules={[{ required: true, min: 3 }]}><Input.TextArea rows={3} /></Form.Item></Form></Space>
       </Modal>
       <Drawer width={660} title={timelineSpecimen ? `${timelineSpecimen.accessionNo} 交接链` : '交接链'} open={Boolean(timelineSpecimen)} onClose={() => setTimelineSpecimen(null)}><CustodyTimeline transfers={timelineSpecimen?.transfers || []} /></Drawer>
     </div>

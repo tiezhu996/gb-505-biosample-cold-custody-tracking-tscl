@@ -131,6 +131,9 @@ func (r *transferRepository) Resolve(ctx context.Context, transferID uint, resol
 		transfer.Normalize()
 
 		if transfer.State == constants.TransferStateAccepted {
+			if specimen.Expired(time.Now().UTC()) {
+				return ErrSpecimenExpired
+			}
 			if transfer.ToContainerID == nil || *transfer.ToContainerID == 0 {
 				return ErrTargetContainerFull
 			}

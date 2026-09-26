@@ -1,5 +1,5 @@
-import { EyeOutlined, ForkOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
-import { Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Typography, message } from 'antd'
+import { DeleteOutlined, EyeOutlined, ForkOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useEffect, useState } from 'react'
 import { specimenAPI } from '../api'
@@ -11,6 +11,7 @@ import { usePagination } from '../hooks/usePagination'
 import { useSpecimenStore } from '../stores/specimenStore'
 import type { Specimen, SpecimenState } from '../types/domain'
 import { formatDateTime } from '../utils/format'
+import { isSpecimenExpired } from '../utils/specimen'
 
 export function SpecimensPage() {
   const { data, loading, load } = useSpecimenStore()
@@ -20,10 +21,12 @@ export function SpecimensPage() {
   const [state, setState] = useState<SpecimenState>()
   const [open, setOpen] = useState(false)
   const [aliquotTarget, setAliquotTarget] = useState<Specimen | null>(null)
+  const [disposeTarget, setDisposeTarget] = useState<Specimen | null>(null)
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<Specimen | null>(null)
   const [form] = Form.useForm()
   const [aliquotForm] = Form.useForm()
+  const [disposeForm] = Form.useForm()
   const refresh = () => load({ page: pagination.page, pageSize: pagination.pageSize, search, state })
   useEffect(() => { void refresh() }, [pagination.page, pagination.pageSize, state])
 
@@ -52,6 +55,18 @@ export function SpecimensPage() {
       await refresh()
     } finally { setSaving(false) }
   }
+  const dispose = async () => {
+    if (!disposeTarget) return
+    const { reason } = await disposeForm.validateFields()
+    setSaving(true)
+    try {
+      await specimenAPI.transition(disposeTarget.id, 'disposed', reason)
+      message.success('样本已销毁，占用的冻存位与容器容量已释放')
+      setDisposeTarget(null)
+      disposeForm.resetFields()
+      await refresh()
+    } finally { setSaving(false) }
+  }
   const columns: ColumnsType<Specimen> = [
     { title: '样本接收号', dataIndex: 'accessionNo', fixed: 'left', render: (value, row) => <Button type="link" className="table-link" onClick={() => void show(row)}>{value}</Button> },
     { title: '样本类型', dataIndex: 'sampleType' },
@@ -62,7 +77,8 @@ export function SpecimensPage() {
     { title: '当前保管人', dataIndex: 'currentCustodian' },
     { title: '体积/分装', render: (_, row) => `${row.volumeMl} mL / ${row.aliquotCount} 份` },
     { title: '接收时间', dataIndex: 'receivedAt', render: formatDateTime },
-    { title: '操作', fixed: 'right', render: (_, row) => <Space><Button size="small" icon={<EyeOutlined />} onClick={() => void show(row)}>详情</Button>{row.state === 'received' && can('specimen:transition') && <Button size="small" icon={<ForkOutlined />} onClick={() => { setAliquotTarget(row); aliquotForm.setFieldsValue({ aliquotCount: Math.max(row.aliquotCount, 1) }) }}>完成分装</Button>}</Space> },
+    { title: '有效期', dataIndex: 'expiresAt', render: (value, row) => <Space size={4}>{formatDateTime(value)}{isSpecimenExpired(row) && <Tag color="red">已过期</Tag>}</Space> },
+    { title: '操作', fixed: 'right', render: (_, row) => <Space><Button size="small" icon={<EyeOutlined />} onClick={() => void show(row)}>详情</Button>{row.state === 'received' && can('specimen:transition') && <Button size="small" icon={<ForkOutlined />} onClick={() => { setAliquotTarget(row); aliquotForm.setFieldsValue({ aliquotCount: Math.max(row.aliquotCount, 1) }) }}>完成分装</Button>}{isSpecimenExpired(row) && can('specimen:transition') && <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDisposeTarget(row)}>销毁</Button>}</Space> },
   ]
   return (
     <div className="page-stack">
@@ -79,6 +95,10 @@ export function SpecimensPage() {
       </Modal>
       <Modal title={`完成分装 · ${aliquotTarget?.accessionNo || ''}`} open={Boolean(aliquotTarget)} confirmLoading={saving} onOk={() => void markAliquoted()} onCancel={() => setAliquotTarget(null)} okText="确认完成" cancelText="取消">
         <Form form={aliquotForm} layout="vertical"><Form.Item name="aliquotCount" label="实际分装份数" rules={[{ required: true }]}><InputNumber min={1} max={10000} precision={0} style={{ width: '100%' }} /></Form.Item></Form>
+      </Modal>
+      <Modal title={`销毁过期样本 · ${disposeTarget?.accessionNo || ''}`} open={Boolean(disposeTarget)} confirmLoading={saving} onOk={() => void dispose()} onCancel={() => setDisposeTarget(null)} okText="确认销毁" cancelText="取消" okButtonProps={{ danger: true }}>
+        <Typography.Paragraph type="secondary">样本已过有效期，销毁后不可恢复；原占用的冻存位和容器容量将自动释放。</Typography.Paragraph>
+        <Form form={disposeForm} layout="vertical"><Form.Item name="reason" label="销毁原因" rules={[{ required: true, min: 3, message: '请填写至少 3 个字符的销毁原因' }]}><Input.TextArea rows={3} maxLength={800} showCount placeholder="例如：样本已过有效期，按协议要求销毁" /></Form.Item></Form>
       </Modal>
       <SampleDrawer specimen={selected} open={Boolean(selected)} onClose={() => setSelected(null)} />
     </div>

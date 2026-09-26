@@ -157,7 +157,7 @@ func SeedDemoData(ctx context.Context, db *gorm.DB) error {
 				TemperatureZone: "minus80",
 				Location:        "样本库 B 区",
 				Capacity:        800,
-				Occupied:        2,
+				Occupied:        3,
 				Status:          "available",
 				Active:          true,
 			},
@@ -182,9 +182,11 @@ func SeedDemoData(ctx context.Context, db *gorm.DB) error {
 		receivedTwo := now.Add(-30 * time.Hour)
 		receivedThree := now.Add(-6 * time.Hour)
 		receivedFour := now.Add(-2 * time.Hour)
+		receivedFive := now.AddDate(-1, -3, 0)
 		expiresOne := now.AddDate(2, 0, 0)
 		expiresTwo := now.AddDate(1, 6, 0)
 		expiresThree := now.AddDate(1, 0, 0)
+		expiredFive := now.Add(-24 * time.Hour)
 		specimens := []model.Specimen{
 			{
 				AccessionNo:        "BIO-20260819-001",
@@ -240,6 +242,21 @@ func SeedDemoData(ctx context.Context, db *gorm.DB) error {
 				CurrentCustodian: "样本接收员",
 				ReceivedAt:       receivedFour,
 				Notes:            "等待离心分装",
+			},
+			{
+				AccessionNo:        "BIO-20250710-009",
+				SampleType:         "血浆",
+				SubjectCode:        "SUBJ-E6610",
+				ProtocolCode:       "PROTO-ONC-042",
+				State:              constants.SpecimenStateStored,
+				StorageContainerID: &containers[1].ID,
+				Position:           "R01-BX02-B05",
+				VolumeML:           3.0,
+				AliquotCount:       2,
+				CurrentCustodian:   "冻存保管员",
+				ReceivedAt:         receivedFive,
+				ExpiresAt:          &expiredFive,
+				Notes:              "已过有效期，等待销毁处置",
 			},
 		}
 		if err := tx.Create(&specimens).Error; err != nil {

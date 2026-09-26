@@ -57,6 +57,9 @@ func (s *transferService) Create(ctx context.Context, actor Actor, input dto.Cre
 	if specimen.State.Terminal() {
 		return nil, util.Conflict("已放行或已销毁样本不能发起交接")
 	}
+	if specimen.Expired(time.Now().UTC()) {
+		return nil, util.Conflict("样本已过有效期，请先完成销毁处置")
+	}
 	prepared, err := s.repo.CountPreparedForSpecimen(ctx, specimen.ID)
 	if err != nil {
 		return nil, err
@@ -168,6 +171,8 @@ func mapTransferError(err error) error {
 		return util.Conflict("交接已被其他请求处理")
 	case errors.Is(err, repository.ErrSpecimenCustodyChanged):
 		return util.Conflict("样本位置或保管人已变化，请重新发起交接")
+	case errors.Is(err, repository.ErrSpecimenExpired):
+		return util.Conflict("样本已过有效期，不能接收交接，请先完成销毁处置")
 	case errors.Is(err, repository.ErrTargetContainerFull):
 		return util.Conflict("目标容器不可用或容量已满")
 	case errors.Is(err, repository.ErrPositionOccupied):
