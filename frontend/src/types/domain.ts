@@ -37,6 +37,7 @@ export interface Specimen extends BaseEntity {
   currentCustodian: string
   receivedAt: string
   expiresAt?: string
+  expired?: boolean
   notes?: string
   transfers?: CustodyTransfer[]
   protocolReviews?: ProtocolReview[]

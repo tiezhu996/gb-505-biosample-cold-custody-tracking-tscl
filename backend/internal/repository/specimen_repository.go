@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -13,11 +14,16 @@ import (
 	"biosample-cold-custody-tracking/backend/internal/model"
 )
 
+// ErrSpecimenExpired is returned from guarded transactions (transfer acceptance,
+// protocol approval) when the specimen has passed its registered expiry date.
+var ErrSpecimenExpired = errors.New("specimen has passed its expiry date")
+
 type SpecimenFilter struct {
 	dto.PageQuery
 	State              string `form:"state"`
 	StorageContainerID uint   `form:"storageContainerId"`
 	ProtocolCode       string `form:"protocolCode"`
+	ExpiredOnly        bool   `form:"expiredOnly"`
 }
 
 type SpecimenRepository interface {
@@ -48,6 +54,10 @@ func (r *specimenRepository) List(ctx context.Context, filter SpecimenFilter) ([
 	}
 	if protocol := strings.TrimSpace(filter.ProtocolCode); protocol != "" {
 		db = db.Where("protocol_code = ?", strings.ToUpper(protocol))
+	}
+	if filter.ExpiredOnly {
+		db = db.Where("expires_at IS NOT NULL AND expires_at <= ? AND state NOT IN ?", time.Now(),
+			[]constants.SpecimenState{constants.SpecimenStateReleased, constants.SpecimenStateDisposed})
 	}
 	if search := strings.TrimSpace(query.Search); search != "" {
 		like := "%" + search + "%"

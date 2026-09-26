@@ -41,6 +41,34 @@ func TestSpecimenValidationTracksStorageInvariant(t *testing.T) {
 	}
 }
 
+func TestSpecimenExpiredFlag(t *testing.T) {
+	specimen := validSpecimen()
+	past := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+
+	specimen.ExpiresAt = &future
+	if err := specimen.AfterFind(nil); err != nil {
+		t.Fatalf("AfterFind failed: %v", err)
+	}
+	if specimen.IsExpired {
+		t.Fatal("specimen expiring in the future must not be flagged expired")
+	}
+
+	specimen.ExpiresAt = &past
+	if err := specimen.AfterFind(nil); err != nil {
+		t.Fatalf("AfterFind failed: %v", err)
+	}
+	if !specimen.IsExpired {
+		t.Fatal("specimen past its expiry date must be flagged expired")
+	}
+
+	specimen.State = constants.SpecimenStateDisposed
+	_ = specimen.AfterFind(nil)
+	if specimen.IsExpired {
+		t.Fatal("disposed specimens are terminal and must not be flagged for disposal")
+	}
+}
+
 func TestStorageContainerTemperatureAndCapacity(t *testing.T) {
 	container := StorageContainer{
 		Code: "FZ-80-01", Name: "负八十度一号柜", ContainerType: "ultra_low_freezer",

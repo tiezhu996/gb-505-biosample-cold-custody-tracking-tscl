@@ -119,6 +119,9 @@ func (r *transferRepository) Resolve(ctx context.Context, transferID uint, resol
 		if specimen.CurrentCustodian != transfer.FromCustodian || specimen.LocationLabel() != transfer.FromLocation {
 			return ErrSpecimenCustodyChanged
 		}
+		if resolution.State == constants.TransferStateAccepted && specimen.Expired(time.Now().UTC()) {
+			return ErrSpecimenExpired
+		}
 
 		transfer.State = resolution.State
 		transfer.ToContainerID = resolution.ToContainerID

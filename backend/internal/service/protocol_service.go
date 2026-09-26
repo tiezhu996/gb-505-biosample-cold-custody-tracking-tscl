@@ -66,6 +66,9 @@ func (s *protocolService) Review(ctx context.Context, actor Actor, input dto.Cre
 	if input.Decision == constants.DecisionApproved && specimen.State != constants.SpecimenStateStored {
 		return nil, util.Conflict("只有已冻存样本可以批准放行")
 	}
+	if input.Decision == constants.DecisionApproved && specimen.Expired(time.Now().UTC()) {
+		return nil, util.Conflict("样本已过有效期，不能批准放行，请先完成销毁处置")
+	}
 	documentKey := ""
 	if input.DocumentObjectKey != nil {
 		documentKey = strings.TrimSpace(*input.DocumentObjectKey)
@@ -95,6 +98,9 @@ func (s *protocolService) Review(ctx context.Context, actor Actor, input dto.Cre
 	created, afterSpecimen, beforeSpecimen, err := s.repo.Create(ctx, review)
 	if errors.Is(err, repository.ErrSpecimenNotReviewable) {
 		return nil, util.Conflict("样本状态或协议已变化，无法完成复核")
+	}
+	if errors.Is(err, repository.ErrSpecimenExpired) {
+		return nil, util.Conflict("样本已过有效期，不能批准放行，请先完成销毁处置")
 	}
 	if err != nil {
 		return nil, err

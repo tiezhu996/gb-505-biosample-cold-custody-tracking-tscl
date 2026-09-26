@@ -164,6 +164,26 @@ func (s *specimenService) Transition(ctx context.Context, actor Actor, id uint, 
 		if locked.State != current.State {
 			return util.Conflict("样本状态已被其他请求更新")
 		}
+		if next == constants.SpecimenStateDisposed {
+			// Expired specimens must go to disposal; cancel any pending handovers
+			// first so the queue cannot get stuck with an unpreparable transfer.
+			cancelledAt := time.Now().UTC()
+			if err := tx.Model(&model.CustodyTransfer{}).
+				Where("specimen_id = ? AND state = ?", locked.ID, constants.TransferStatePrepared).
+				Updates(map[string]any{
+					"state":              constants.TransferStateCancelled,
+					"reason":             DisposeCancelledTransferReason,
+					"accepted_by_id":     actor.ID,
+					"accepted_by_name":   actor.Name,
+					"resolved_at":        cancelledAt,
+					"temperature_c":      nil,
+					"to_container_id":    nil,
+					"to_position":        "",
+					"updated_at":         cancelledAt,
+				}).Error; err != nil {
+				return err
+			}
+		}
 		locked.State = next
 		if next == constants.SpecimenStateDisposed {
 			if locked.StorageContainerID != nil {
@@ -192,5 +212,18 @@ func (s *specimenService) Transition(ctx context.Context, actor Actor, id uint, 
 	if err := s.audit.Record(ctx, actor, "specimen.transitioned", "Specimen", id, before, updated); err != nil {
 		return nil, err
 	}
+	if next == constants.SpecimenStateDisposed {
+		for _, transfer := range updated.Transfers {
+			if transfer.State == constants.TransferStateCancelled && transfer.Reason == DisposeCancelledTransferReason {
+				if err := s.audit.Record(ctx, actor, "custody_transfer.cancelled", "CustodyTransfer", transfer.ID, nil, transfer); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	return updated, nil
 }
+
+// DisposeCancelledTransferReason is recorded on handovers auto-cancelled while
+// disposing an expired specimen.
+var DisposeCancelledTransferReason = "样本已销毁，待处理交接自动取消"

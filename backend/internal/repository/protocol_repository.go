@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -83,6 +84,9 @@ func (r *protocolRepository) Create(ctx context.Context, review *model.ProtocolR
 		if review.Decision == constants.DecisionApproved {
 			if specimen.State != constants.SpecimenStateStored {
 				return ErrSpecimenNotReviewable
+			}
+			if specimen.Expired(time.Now().UTC()) {
+				return ErrSpecimenExpired
 			}
 			if specimen.StorageContainerID != nil {
 				if err := tx.Model(&model.StorageContainer{}).Where("id = ?", *specimen.StorageContainerID).

@@ -57,6 +57,9 @@ func (s *transferService) Create(ctx context.Context, actor Actor, input dto.Cre
 	if specimen.State.Terminal() {
 		return nil, util.Conflict("已放行或已销毁样本不能发起交接")
 	}
+	if specimen.Expired(time.Now().UTC()) {
+		return nil, util.Conflict("样本已过有效期，请先完成销毁处置后再处理")
+	}
 	prepared, err := s.repo.CountPreparedForSpecimen(ctx, specimen.ID)
 	if err != nil {
 		return nil, err
@@ -118,6 +121,9 @@ func (s *transferService) Resolve(ctx context.Context, actor Actor, id uint, inp
 		if strings.TrimSpace(actor.Name) != beforeTransfer.ToCustodian {
 			return nil, util.Forbidden("只有指定接收保管人可以受理交接")
 		}
+		if beforeTransfer.Specimen.Expired(time.Now().UTC()) {
+			return nil, util.Conflict("样本已过有效期，不能受理交接，请先完成销毁处置")
+		}
 	}
 	reason := strings.TrimSpace(input.Reason)
 	if input.State != constants.TransferStateAccepted && len([]rune(reason)) < 3 {
@@ -174,6 +180,8 @@ func mapTransferError(err error) error {
 		return util.Conflict("目标冻存位置已被占用")
 	case errors.Is(err, repository.ErrTemperatureExcursion):
 		return util.Conflict("交接温度超出目标容器温区")
+	case errors.Is(err, repository.ErrSpecimenExpired):
+		return util.Conflict("样本已过有效期，不能受理交接，请先完成销毁处置")
 	default:
 		return err
 	}

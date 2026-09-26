@@ -24,12 +24,13 @@ export const storageAPI = {
 }
 
 export const specimenAPI = {
-  list: (params: PageParams & { state?: SpecimenState; storageContainerId?: number } = {}) =>
+  list: (params: PageParams & { state?: SpecimenState; storageContainerId?: number; expiredOnly?: boolean } = {}) =>
     unwrap<PageResult<Specimen>>(apiClient.get('/specimens', { params })),
   get: (id: number) => unwrap<Specimen>(apiClient.get(`/specimens/${id}`)),
   create: (payload: {
     accessionNo: string; sampleType: string; subjectCode: string; protocolCode: string;
-    volumeMl: number; aliquotCount: number; currentCustodian: string; receivedAt?: string; notes?: string;
+    volumeMl: number; aliquotCount: number; currentCustodian: string;
+    receivedAt?: string; expiresAt?: string; notes?: string;
   }) => unwrap<Specimen>(apiClient.post('/specimens', payload)),
   update: (id: number, payload: Partial<Specimen>) => unwrap<Specimen>(apiClient.patch(`/specimens/${id}`, payload)),
   transition: (id: number, state: SpecimenState, reason = '') =>

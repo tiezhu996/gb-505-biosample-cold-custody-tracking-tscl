@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"biosample-cold-custody-tracking/backend/internal/constants"
 )
 
@@ -30,6 +32,14 @@ type Specimen struct {
 	Notes              string                  `gorm:"size:1000" json:"notes,omitempty"`
 	Transfers          []CustodyTransfer       `json:"transfers,omitempty"`
 	ProtocolReviews    []ProtocolReview        `json:"protocolReviews,omitempty"`
+	IsExpired          bool                    `gorm:"-" json:"expired"`
+}
+
+// AfterFind populates the transient expired flag so every API consumer sees a
+// single source of truth for expiry status.
+func (s *Specimen) AfterFind(*gorm.DB) error {
+	s.IsExpired = s.Expired(time.Now()) && s.State != constants.SpecimenStateReleased && s.State != constants.SpecimenStateDisposed
+	return nil
 }
 
 func (s *Specimen) Normalize() {
